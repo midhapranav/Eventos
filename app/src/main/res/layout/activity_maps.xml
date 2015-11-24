@@ -1,0 +1,12 @@
+<fragment xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools" android:layout_width="match_parent"
+    android:layout_height="wrap_content" android:id="@+id/map"
+    tools:context="com.example.midhapranav.eventos.MapsActivity"
+    android:name="com.google.android.gms.maps.SupportMapFragment"
+    android:apiKey="AIzaSyBLF3oHEa85ar8Hafjb-guy5hQpr8EWIf4">
+    <Button
+        android:id="@+id/create_geo_fence_button"
+        android:layout_height="50dp"
+        android:layout_width="100dp"
+        android:text="Create GeoFence"/>
+</fragment>
