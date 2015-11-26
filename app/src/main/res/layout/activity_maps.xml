@@ -6,7 +6,13 @@
     android:apiKey="AIzaSyBLF3oHEa85ar8Hafjb-guy5hQpr8EWIf4">
     <Button
         android:id="@+id/create_geo_fence_button"
-        android:layout_height="50dp"
-        android:layout_width="100dp"
-        android:text="Create GeoFence"/>
+        android:layout_height="75dp"
+        android:layout_width="80dp"
+        android:background="#44000000"
+        android:text="Create GeoFence"
+        android:bottomRightRadius="10dp"
+        android:bottomLeftRadius="10dp"
+        android:topRightRadius="10dp"
+        android:topLeftRadius="10dp"
+        />
 </fragment>

@@ -6,12 +6,14 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.location.Address;
 import android.location.Criteria;
 import android.location.Geocoder;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
+import android.net.Uri;
 import android.support.v4.app.FragmentActivity;
 import android.os.Bundle;
 import android.util.Log;
@@ -27,12 +29,14 @@ import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.UiSettings;
+import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.Circle;
 import com.google.android.gms.maps.model.CircleOptions;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -42,41 +46,50 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
-public class MapsActivity extends FragmentActivity implements LocationListener {
+public class MapsActivity extends FragmentActivity {
 
     static class markerHolder {
         String title;
         String id;
         Double latitude;
         Double longitude;
-        int radius;
+        Double radius;
         Marker marker;
         Circle circle;
+        List<eventDetails> eventList;
     }
 
-    static class events {
-        String eventId;
+    static class eventDetails {
+        Marker eventMarker;
         String name;
+        String description;
         String startTime;
         String endTime;
-        String description;
-        URL url;
+        String URL;
+        double latitude;
+        double longitude;
     }
     private GoogleMap mMap; // Might be null if Google Play services APK is not available.
     private List<markerHolder> mMarkerList;
-    private List<events> mEventsList;
+    private List<eventDetails> mEventsList;
     public static String mUserId;
+    public static Location location;
+    public static HashMap<String, eventDetails> eventDetailsMap;
+    public static String geoFenceIdWhenNew;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         mMarkerList = new ArrayList<markerHolder>();
+        eventDetailsMap = new HashMap<String,eventDetails>();
         mUserId = getIntent().getExtras().getString("userid");
         Log.d("USERID Debug->","The user id is "+ mUserId);
         setContentView(R.layout.activity_maps);
         setUpMapIfNeeded();
         setupCreateGeoFenceButton();
+        setupExistingGeoFences();
     }
 
     @Override
@@ -111,12 +124,41 @@ public class MapsActivity extends FragmentActivity implements LocationListener {
             ui.setZoomControlsEnabled(true);
             ui.setAllGesturesEnabled(true);
             mMap.setMyLocationEnabled(true);
+            mMap.setOnMyLocationChangeListener(new GoogleMap.OnMyLocationChangeListener() {
+                @Override
+                public void onMyLocationChange(Location location) {
+                    Log.d("Map Debugging","Location is changed");
+                    for(final markerHolder m : mMarkerList) {
+                        Log.d("Map Debugging", "finding marker");
+                        Location loc = new Location("");
+                        loc.setLongitude(m.longitude);
+                        loc.setLatitude(m.latitude);
+                        float result = location.distanceTo(loc);
+                        Log.d("Map Debugging", "Distance is " + result*0.000621371);
+                        Log.d("Map Debugging","Radisu is "+ m.radius);
+                        if ((result*0.000621371)<m.radius) {
+                            Log.d("Map Debugging","found marker");
+                            final String name = m.title;
+                         MapsActivity.this.runOnUiThread(new Runnable() {
+                             @Override
+                             public void run() {
+                                 Toast.makeText(getBaseContext(), ("You are in "+name),
+                                         Toast.LENGTH_SHORT).show();
+
+                             }
+                         });
+                            break;
+                        }
+                    }
+                }
+            });
+
             mMap.setOnMapClickListener(new GoogleMap.OnMapClickListener() {
                 @Override
                 public void onMapClick(LatLng latLng) {
-                    for(final markerHolder m : mMarkerList) {
-                        if(Math.abs(m.latitude - latLng.latitude)<0.0005 && Math.abs(m.longitude - latLng.longitude)<0.0005) {
-                            Log.d("MapClick debug->","Marker found with title "+m.title);
+                    for (final markerHolder m : mMarkerList) {
+                        if (Math.abs(m.latitude - latLng.latitude) < 0.0005 && Math.abs(m.longitude - latLng.longitude) < 0.0005) {
+                            Log.d("MapClick debug->", "Marker found with title " + m.title);
                             LinearLayout alertBoxLayout = new LinearLayout(MapsActivity.this);
                             alertBoxLayout.setOrientation(LinearLayout.VERTICAL);
                             AlertDialog.Builder alert = new AlertDialog.Builder(MapsActivity.this);
@@ -127,10 +169,10 @@ public class MapsActivity extends FragmentActivity implements LocationListener {
                             final EditText name = new EditText(getApplicationContext());
                             final TextView nameText = new TextView(getApplicationContext());
 
-                            radiusText.setText("\t Update Radius here:");
+                            radiusText.setText("\t Update Radius here(in miles):");
                             nameText.setTextColor(Color.BLACK);
                             alertBoxLayout.addView(radiusText);
-                            radius.setText(Integer.toString(m.radius));
+                            radius.setText(Double.toString(m.radius));
                             radius.setTextColor(Color.BLACK);
                             radiusText.setTextColor(Color.BLACK);
                             alertBoxLayout.addView(radius);
@@ -145,12 +187,12 @@ public class MapsActivity extends FragmentActivity implements LocationListener {
                                 public void onClick(DialogInterface dialog, int whichButton) {
                                     //You will get as string input data in this variable.
                                     // here we convert the input to a string and show in a toast.
-                                    new Thread (new Runnable(){
+                                    new Thread(new Runnable() {
                                         @Override
-                                        public void run(){
+                                        public void run() {
                                             try {
-                                                String params = "geofenceid="+m.id+"&geofencename="+name.getEditableText().toString()+"&radius="+radius.getEditableText().toString()+"&long="+m.longitude+"&lat="+m.latitude;
-                                                String url = "http://eventosdataapi-env.elasticbeanstalk.com/?selector=6&"+params;
+                                                String params = "geofenceid=" + m.id + "&geofencename=" + name.getEditableText().toString() + "&radius=" + radius.getEditableText().toString() + "&long=" + m.longitude + "&lat=" + m.latitude;
+                                                String url = "http://eventosdataapi-env.elasticbeanstalk.com/?selector=6&" + params;
                                                 URL urlObj = new URL(url);
                                                 HttpURLConnection conn = (HttpURLConnection) urlObj.openConnection();
                                                 conn.setDoOutput(false);
@@ -167,12 +209,18 @@ public class MapsActivity extends FragmentActivity implements LocationListener {
                                                 }
                                                 JSONObject json = new JSONObject(sb.toString());
                                                 Log.d("UpdateDelete debug->", json.toString());
-                                                if((json.getString("success").equals("True"))) {
-                                                    m.radius = Integer.parseInt(radius.getEditableText().toString());
+                                                if ((json.getString("success").equals("True"))) {
+                                                    m.radius = Double.parseDouble(radius.getEditableText().toString());
                                                     m.title = name.getEditableText().toString();
                                                     MapsActivity.this.runOnUiThread(new Runnable() {
                                                         public void run() {
-                                                            m.circle.setRadius(Double.parseDouble(radius.getEditableText().toString()));
+                                                            for (eventDetails e : m.eventList) {
+                                                                e.eventMarker.remove();
+                                                                Log.d("DDelete deubg->", "Geofence deleted");
+                                                            }
+                                                            m.eventList = getEvents(m.id);
+
+                                                            m.circle.setRadius(Double.parseDouble(radius.getEditableText().toString()) * 1609);
                                                             m.marker.setTitle(name.getEditableText().toString());
                                                             Toast.makeText(getBaseContext(), ("GeoFence updated!"),
                                                                     Toast.LENGTH_SHORT).show();
@@ -200,12 +248,12 @@ public class MapsActivity extends FragmentActivity implements LocationListener {
                                     //You will get as string input data in this variable.
                                     // here we convert the input to a string and show in a toast.
                                     Log.d("UpdateDelete Debug - >", "Delete here");
-                                    new Thread (new Runnable(){
+                                    new Thread(new Runnable() {
                                         @Override
-                                        public void run(){
+                                        public void run() {
                                             try {
-                                                String params = "geofenceid="+m.id;
-                                                String url = "http://eventosdataapi-env.elasticbeanstalk.com/?selector=7&"+params;
+                                                String params = "geofenceid=" + m.id;
+                                                String url = "http://eventosdataapi-env.elasticbeanstalk.com/?selector=7&" + params;
                                                 URL urlObj = new URL(url);
                                                 HttpURLConnection conn = (HttpURLConnection) urlObj.openConnection();
                                                 conn.setDoOutput(false);
@@ -222,9 +270,14 @@ public class MapsActivity extends FragmentActivity implements LocationListener {
                                                 }
                                                 JSONObject json = new JSONObject(sb.toString());
                                                 Log.d("UpdateDelete debug->", json.toString());
-                                                if((json.getString("success").equals("True"))) {
+                                                if ((json.getString("success").equals("True"))) {
                                                     MapsActivity.this.runOnUiThread(new Runnable() {
                                                         public void run() {
+                                                            Log.d("DDelete delete ->", Integer.toString(m.eventList.size()));
+                                                            for (eventDetails e : m.eventList) {
+                                                                e.eventMarker.remove();
+                                                                Log.d("DDelete deubg->", "Geofence deleted");
+                                                            }
                                                             m.circle.remove();
                                                             m.marker.remove();
                                                             mMarkerList.remove(m);
@@ -262,30 +315,10 @@ public class MapsActivity extends FragmentActivity implements LocationListener {
                     }
                 }
             });
-            LocationManager locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
-            Criteria criteria = new Criteria();
-            String bestProvider = locationManager.getBestProvider(criteria, true);
-            if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                // TODO: Consider calling
-                //    public void requestPermissions(@NonNull String[] permissions, int requestCode)
-                // here to request the missing permissions, and then overriding
-                //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-                //                                          int[] grantResults)
-                // to handle the case where the user grants the permission. See the documentation
-                // for Activity#requestPermissions for more details.
-                return;
-            }
-            Location location = locationManager.getLastKnownLocation(bestProvider);
-            if (location != null) {
-                onLocationChanged(location);
-            }
-            locationManager.requestLocationUpdates(bestProvider, 20000, 0, this);
             // Check if we were successful in obtaining the map.
             if (mMap != null) {
                 setUpMapWithGeoFences();
             }
-
-
         }
     }
 
@@ -296,9 +329,57 @@ public class MapsActivity extends FragmentActivity implements LocationListener {
      * This should only be called once and when we are sure that {@link #mMap} is not null.
      */
     private void setUpMapWithGeoFences() {
+        Log.d("GeoFence debug->", "You can create geoFences here");
         //TODO setup-map with existing geoFences
     }
 
+    private void setupExistingGeoFences() {
+        new Thread (new Runnable(){
+            @Override
+            public void run(){
+                try {
+                    String url = "http://eventosdataapi-env.elasticbeanstalk.com/?userid="+mUserId+"&selector=4";
+                    URL urlObj = new URL(url);
+                    HttpURLConnection conn = (HttpURLConnection) urlObj.openConnection();
+                    conn.setDoOutput(false);
+                    conn.setRequestMethod("GET");
+                    conn.setRequestProperty("Accept-Charset", "UTF-8");
+                    conn.setConnectTimeout(15000);
+                    conn.connect();
+                    BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                    StringBuilder sb = new StringBuilder();
+                    String output;
+                    while ((output = br.readLine()) != null) {
+                        sb.append(output);
+                    }
+                    JSONObject json = new JSONObject(sb.toString());
+                    Log.d("GeoFenceCreate debug->",json.toString());
+                    JSONArray arr = json.getJSONArray("geofences");
+                    for(int loop=0; loop<arr.length(); loop++) {
+                        String obj = arr.get(loop).toString();
+                        obj = obj.replaceFirst("\\[\\{", "{");
+                        obj = obj.replaceAll("\\}\\]", "}");
+                        JSONObject obj1 = new JSONObject(obj);
+                        String coord = obj1.getJSONObject("center").getString("coordinates");
+                        coord = coord.replaceAll("\\[", "");
+                        coord = coord.replaceAll("\\]", "");
+                        String[] latlng = coord.split(",");
+                        Log.d("Latitude is ->", latlng[0]);
+                        Log.d("Longitutde  is ->", latlng[1]);
+                        LatLng coordinate = new LatLng(Double.parseDouble(latlng[1]), Double.parseDouble(latlng[0]));
+                        String geoFenceid = obj1.getString("geofenceid");
+                        String name = obj1.getString("geofencename");
+                        double radius = Double.parseDouble(obj1.getString("radius"));
+                        drawGeoFence(coordinate, name, geoFenceid, radius);
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
+            }
+        }).start();
+    }
     private void setupCreateGeoFenceButton() {
         // Declare your builder here -
         Button mButton = (Button) findViewById(R.id.create_geo_fence_button);
@@ -319,6 +400,9 @@ public class MapsActivity extends FragmentActivity implements LocationListener {
                 final EditText name = new EditText(getApplicationContext());
                 final TextView nameText = new TextView(getApplicationContext());
 
+                address.setTextColor(Color.BLACK);
+                radius.setTextColor(Color.BLACK);
+                name.setTextColor(Color.BLACK);
                 addressText.setText("\t Enter Address here:");
                 addressText.setTextColor(Color.BLACK);
                 alertBoxLayout.addView(addressText);
@@ -338,7 +422,7 @@ public class MapsActivity extends FragmentActivity implements LocationListener {
                         //You will get as string input data in this variable.
                         // here we convert the input to a string and show in a toast.
                         String srt = address.getEditableText().toString();
-                        setLocationFromStringAddress(address.getEditableText().toString(), Double.parseDouble(radius.getEditableText().toString()),name.getEditableText().toString());
+                        setLocationFromStringAddress(address.getEditableText().toString(), Double.parseDouble(radius.getEditableText().toString()), name.getEditableText().toString());
                     }
                 });
                 alert.setNegativeButton("CANCEL", new DialogInterface.OnClickListener() {
@@ -368,47 +452,19 @@ public class MapsActivity extends FragmentActivity implements LocationListener {
             location.getLongitude();
             LatLng coordinate = new LatLng(location.getLatitude(), location.getLongitude());
             double radiusInMeters = radius;
-            createNewGeoFenceRecord(name, (int) radius, coordinate, 1);
+            createNewGeoFenceRecord(name, radius, coordinate, 1);
             return;
         }
         catch (Exception e){}
     }
 
-
-    @Override
-    public void onLocationChanged(Location location) {
-        double latitude = location.getLatitude();
-        double longitude = location.getLongitude();
-        LatLng latLng = new LatLng(latitude, longitude);
-        mMap.addMarker(new MarkerOptions().position(latLng));
-        mMap.moveCamera(CameraUpdateFactory.newLatLng(latLng));
-        mMap.animateCamera(CameraUpdateFactory.zoomTo(15));
-        Log.d("Map debug->",latitude +","+longitude);
-    }
-
-    @Override
-    public void onStatusChanged(String provider, int status, Bundle extras) {
-
-    }
-
-    @Override
-    public void onProviderEnabled(String provider) {
-
-    }
-
-    @Override
-    public void onProviderDisabled(String provider) {
-
-    }
-
-    public void createNewGeoFenceRecord(final String geoFenceName, final int geoFenceRadius, final LatLng geoFenceCenter, final int selector) {
-
+    public void createNewGeoFenceRecord(final String geoFenceName, final double geoFenceRadius, final LatLng geoFenceCenter, final int selector) {
         new Thread (new Runnable(){
             @Override
             public void run(){
                 try {
                     if(selector == 1) {
-                        String params = "userid=" + mUserId + "&geofencename=" + geoFenceName + "&radius=" + (double)geoFenceRadius*0.000621371 + "&long=" + geoFenceCenter.longitude + "&lat=" + geoFenceCenter.latitude;
+                        String params = "userid=" + mUserId + "&geofencename=" + geoFenceName + "&radius=" + (double)geoFenceRadius + "&long=" + geoFenceCenter.longitude + "&lat=" + geoFenceCenter.latitude;
                         String url = "http://eventosdataapi-env.elasticbeanstalk.com/?selector=3";
                         URL urlObj = new URL(url);
                         HttpURLConnection conn = (HttpURLConnection) urlObj.openConnection();
@@ -426,6 +482,7 @@ public class MapsActivity extends FragmentActivity implements LocationListener {
                         }
                         JSONObject json = new JSONObject(sb.toString());
                         Log.d("AddGeoFence debug->", json.toString());
+                        geoFenceIdWhenNew = json.getString("geofenceId");
                         if ((json.getString("success").equals("True"))) {
                             MapsActivity.this.runOnUiThread(new Runnable() {
                                 public void run() {
@@ -446,19 +503,23 @@ public class MapsActivity extends FragmentActivity implements LocationListener {
                         public void run() {
                             int strokeColor = 0xffff0000; //red outline
                             int shadeColor = 0x44ff0000; //opaque red fill
-                            CircleOptions circleOptions = new CircleOptions().center(geoFenceCenter).radius(geoFenceRadius * 0.000621371).fillColor(shadeColor).strokeColor(strokeColor).strokeWidth(8);
+                            CircleOptions circleOptions = new CircleOptions().center(geoFenceCenter).radius(geoFenceRadius * 1609).fillColor(shadeColor).strokeColor(strokeColor).strokeWidth(8);
                             Circle circle = mMap.addCircle(circleOptions);
+                            Log.d("CircleDebug", "Creating circle");
                             Marker m = mMap.addMarker(new MarkerOptions().position(geoFenceCenter).title(geoFenceName));
                             CameraUpdate yourLocation = CameraUpdateFactory.newLatLngZoom(geoFenceCenter, 11.0f);
                             mMap.animateCamera(yourLocation);
                             markerHolder mMarkerHolder = new markerHolder();
-                            mMarkerHolder.id = geoFenceName;
+                            mMarkerHolder.id = geoFenceIdWhenNew;
+                            mMarkerHolder.title = geoFenceName;
                             mMarkerHolder.latitude = geoFenceCenter.latitude;
                             mMarkerHolder.longitude = geoFenceCenter.longitude;
                             mMarkerHolder.title = geoFenceName;
                             mMarkerHolder.radius = geoFenceRadius;
                             mMarkerHolder.circle = circle;
                             mMarkerHolder.marker = m;
+                            mMarkerHolder.eventList = new ArrayList<eventDetails>();
+                            mMarkerHolder.eventList = getEvents(mMarkerHolder.id);
                             mMarkerList.add(mMarkerHolder);
                         }
                     });
@@ -470,33 +531,143 @@ public class MapsActivity extends FragmentActivity implements LocationListener {
                 }
             }
         }).start();
-        getEvents();
     }
 
-    private void getEvents() {
+    private List<eventDetails> getEvents(final String geoFenceId) {
+
+        final List<eventDetails> eventsList = new ArrayList<eventDetails>();
         new Thread (new Runnable(){
             @Override
             public void run(){
                 try {
-                    String url = "http://eventosdataapi-env.elasticbeanstalk.com/?geofenceid=2&selector=5";
+                    String url = "http://eventosdataapi-env.elasticbeanstalk.com/?geofenceid="+geoFenceId+"&selector=5";
                     URL urlObj = new URL(url);
                     HttpURLConnection conn = (HttpURLConnection) urlObj.openConnection();
                     conn.setDoOutput(false);
                     conn.setRequestMethod("GET");
                     conn.setRequestProperty("Accept-Charset", "UTF-8");
                     conn.setConnectTimeout(15000);
-                    Log.d("Login debug->","Connecting");
                     conn.connect();
-                    Log.d("Login debug->", Integer.toString(conn.getResponseCode()));
                     BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
                     StringBuilder sb = new StringBuilder();
                     String output;
                     while ((output = br.readLine()) != null) {
                         sb.append(output);
                     }
-                    JSONObject json = new JSONObject(sb.toString());
-                    Log.d("GetEvents debug->",json.toString());
+                    final JSONObject json = new JSONObject(sb.toString());
+                    Log.d("Events json->",json.toString());
+                    final JSONArray array = json.getJSONArray("events");
+                    final String events = array.getJSONObject(0).getString("eventid");
 
+                    Log.d("Event debug", events);
+                    Log.d("Event debug", "The number of events are " + array.length());
+                    Log.d("Event debug", "The whole of json is " + json.toString());
+                    MapsActivity.this.runOnUiThread(new Runnable() {
+                        public void run() {
+                            try {
+                                for (int loop = 0; loop < array.length(); loop++) {
+                                    final int finalLoop = loop;
+                                    final LatLng coordinate = new LatLng(Double.parseDouble(array.getJSONObject(finalLoop).getString("lat")), Double.parseDouble(array.getJSONObject(finalLoop).getString("long")));
+                                    Marker m1 = mMap.addMarker(new MarkerOptions().position(coordinate));
+                                    Log.d("DDelete debug->", "Marker added for id " + geoFenceId);
+                                    m1.setIcon(BitmapDescriptorFactory.fromResource(R.drawable.event_marker));
+                                    m1.setTitle(array.getJSONObject(finalLoop).getString("eventid"));
+
+                                    eventDetails newEventDetails = new eventDetails();
+                                    newEventDetails.eventMarker = m1;
+                                    newEventDetails.name = array.getJSONObject(finalLoop).getString("eventname");
+                                    eventsList.add(newEventDetails);
+                                    Log.d("Printing final id ->", "The id is " + array.getJSONObject(finalLoop).getString("eventid") + " and location is " + coordinate.latitude + " , " + coordinate.longitude);
+                                    newEventDetails.description = array.getJSONObject(finalLoop).getString("description");
+                                    newEventDetails.startTime = array.getJSONObject(finalLoop).getString("start_time");
+                                    newEventDetails.endTime = array.getJSONObject(finalLoop).getString("end_time");
+                                    newEventDetails.URL = array.getJSONObject(finalLoop).getString("eventwebsiteurl");
+                                    newEventDetails.latitude = coordinate.latitude;
+                                    newEventDetails.longitude = coordinate.longitude;
+                                    eventDetailsMap.put(m1.getTitle(), newEventDetails);
+                                    mMap.setOnMarkerClickListener(new GoogleMap.OnMarkerClickListener() {
+                                        @Override
+                                        public boolean onMarkerClick(Marker marker) {
+                                            if(eventDetailsMap.containsKey(marker.getTitle())) {
+                                                final eventDetails clicked = eventDetailsMap.get(marker.getTitle());
+
+                                            LinearLayout alertBoxLayout = new LinearLayout(MapsActivity.this);
+                                            alertBoxLayout.setOrientation(LinearLayout.VERTICAL);
+                                            AlertDialog.Builder alert = new AlertDialog.Builder(MapsActivity.this);
+                                            final TextView eventDescTitle = new TextView(getApplicationContext());
+                                            final TextView eventDesc = new TextView(getApplicationContext());
+                                            final TextView startTime = new TextView(getApplicationContext());
+                                            final TextView endTime = new TextView(getApplicationContext());
+                                            final TextView startTimeTitle = new TextView(getApplicationContext());
+                                            final TextView endTimeTitle = new TextView(getApplicationContext());
+                                            try {
+                                                alert.setTitle(clicked.name); //Set Alert dialog title here
+                                                eventDesc.setText(clicked.description);
+                                                eventDescTitle.setText("Description");
+                                                eventDesc.setTextColor(Color.BLACK);
+                                                eventDescTitle.setTextColor(Color.BLACK);
+                                                endTimeTitle.setTypeface(Typeface.defaultFromStyle(Typeface.BOLD_ITALIC));
+                                                endTimeTitle.setText("End Time");
+                                                endTimeTitle.setTextColor(Color.BLACK);
+                                                endTime.setTextColor(Color.BLACK);
+                                                endTime.setText(clicked.endTime);
+                                                startTimeTitle.setTypeface(Typeface.defaultFromStyle(Typeface.BOLD_ITALIC));
+                                                startTimeTitle.setText("Start Time");
+                                                startTime.setTextColor(Color.BLACK);
+                                                startTimeTitle.setTextColor(Color.BLACK);
+                                                startTime.setText(clicked.startTime);
+                                                startTimeTitle.setTypeface(Typeface.defaultFromStyle(Typeface.BOLD_ITALIC));
+                                                eventDesc.setPadding(15, 0, 0, 0);
+                                                eventDescTitle.setPadding(15, 0, 0, 0);
+                                                startTime.setPadding(15, 0, 0, 0);
+                                                startTimeTitle.setPadding(15, 0, 0, 0);
+                                                endTime.setPadding(15, 0, 0, 0);
+                                                endTimeTitle.setPadding(15, 0, 0, 0);
+                                                alertBoxLayout.addView(eventDescTitle);
+                                                alertBoxLayout.addView(eventDesc);
+                                                alertBoxLayout.addView(startTimeTitle);
+                                                alertBoxLayout.addView(startTime);
+                                                alertBoxLayout.addView(endTimeTitle);
+                                                alertBoxLayout.addView(endTime);
+                                                alert.setView(alertBoxLayout);
+                                                alert.setPositiveButton("GO TO URL", new DialogInterface.OnClickListener() {
+                                                    public void onClick(DialogInterface dialog, int whichButton) {
+                                                        try {
+                                                            Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(clicked.URL));
+                                                            startActivity(browserIntent);
+                                                        } catch (Exception e) {
+                                                            e.printStackTrace();
+                                                        }
+                                                    }
+                                                });
+                                                alert.setNeutralButton("CANCEL", new DialogInterface.OnClickListener() {
+                                                    public void onClick(DialogInterface dialog, int whichButton) {
+                                                        dialog.cancel();
+                                                    }
+                                                });
+                                                alert.setNegativeButton("NAVIGATE", new DialogInterface.OnClickListener() {
+                                                    public void onClick(DialogInterface dialog, int whichButton) {
+                                                        Intent intent = new Intent(Intent.ACTION_VIEW,
+                                                                Uri.parse("http://maps.google.com/maps?saddr=" + "34.250,-118.050&daddr=" + clicked.latitude + "," + clicked.longitude));
+                                                        startActivity(intent);
+                                                    }
+                                                });
+                                                AlertDialog alertDialog = alert.create();
+                                                alertDialog.show();
+                                            } catch (Exception e) {
+                                                e.printStackTrace();
+                                            }
+                                            alert.setView(alertBoxLayout);
+                                            return true;
+                                        }
+                                            return false;
+                                    }
+                                });
+
+                            }
+                            } catch (Exception e) {e.printStackTrace();}
+                        }
+                    });
                 } catch (IOException e) {
                     e.printStackTrace();
                 } catch (JSONException e) {
@@ -504,5 +675,41 @@ public class MapsActivity extends FragmentActivity implements LocationListener {
                 }
             }
         }).start();
+        Log.d("DDelete getEvents->",Integer.toString(eventsList.size()));
+        return eventsList;
+    }
+
+    private void drawGeoFence(final LatLng coordinate, final String name, final String geoFenceid, final double radius) {
+        markerHolder existingMarkerHolder = new markerHolder();
+        existingMarkerHolder.title = name;
+        existingMarkerHolder.id = geoFenceid;
+        existingMarkerHolder.radius = radius;
+        Log.d("Coord debug latitude",Double.toString(coordinate.latitude));
+        Log.d("Coord debug longitude",Double.toString(coordinate.longitude));
+        existingMarkerHolder.latitude = coordinate.latitude;
+        existingMarkerHolder.longitude = coordinate.longitude;
+        MapsActivity.this.runOnUiThread(new Runnable() {
+            public void run() {
+                int strokeColor = 0xffff0000; //red outline
+                int shadeColor = 0x44ff0000; //opaque red fill
+                CircleOptions circleOptions = new CircleOptions().center(coordinate).radius(radius * 1609).fillColor(shadeColor).strokeColor(strokeColor).strokeWidth(8);
+                Circle circle = mMap.addCircle(circleOptions);
+                Log.d("CircleDebug", "Creating circle");
+                Marker m = mMap.addMarker(new MarkerOptions().position(coordinate).title(name));
+                CameraUpdate yourLocation = CameraUpdateFactory.newLatLngZoom(coordinate, 11.0f);
+                mMap.animateCamera(yourLocation);
+                markerHolder mMarkerHolder = new markerHolder();
+                mMarkerHolder.id = geoFenceid;
+                mMarkerHolder.latitude = coordinate.latitude;
+                mMarkerHolder.longitude = coordinate.longitude;
+                mMarkerHolder.title = name;
+                mMarkerHolder.radius = radius;
+                mMarkerHolder.circle = circle;
+                mMarkerHolder.marker = m;
+                mMarkerHolder.eventList = new ArrayList<eventDetails>();
+                mMarkerHolder.eventList = getEvents(mMarkerHolder.id);
+                mMarkerList.add(mMarkerHolder);
+            }
+        });
     }
 }
