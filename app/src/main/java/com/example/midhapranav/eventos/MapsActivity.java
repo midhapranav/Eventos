@@ -1,18 +1,13 @@
 package com.example.midhapranav.eventos;
 
-import android.Manifest;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.location.Address;
-import android.location.Criteria;
 import android.location.Geocoder;
 import android.location.Location;
-import android.location.LocationListener;
-import android.location.LocationManager;
 import android.net.Uri;
 import android.support.v4.app.FragmentActivity;
 import android.os.Bundle;
@@ -648,7 +643,7 @@ public class MapsActivity extends FragmentActivity {
                                                 alert.setNegativeButton("NAVIGATE", new DialogInterface.OnClickListener() {
                                                     public void onClick(DialogInterface dialog, int whichButton) {
                                                         Intent intent = new Intent(Intent.ACTION_VIEW,
-                                                                Uri.parse("http://maps.google.com/maps?saddr=" + "34.250,-118.050&daddr=" + clicked.latitude + "," + clicked.longitude));
+                                                                Uri.parse("http://maps.google.com/maps?saddr="+mMap.getMyLocation().getLatitude()+","+mMap.getMyLocation().getLongitude()+"&daddr=" + clicked.latitude + "," + clicked.longitude));
                                                         startActivity(intent);
                                                     }
                                                 });
