@@ -1,6 +1,8 @@
 package com.example.midhapranav.eventos;
 
 import android.app.AlertDialog;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Color;
@@ -11,6 +13,7 @@ import android.location.Location;
 import android.net.Uri;
 import android.support.v4.app.FragmentActivity;
 import android.os.Bundle;
+import android.support.v4.app.NotificationCompat;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
@@ -110,6 +113,7 @@ public class MapsActivity extends FragmentActivity {
      */
     private void setUpMapIfNeeded() {
         // Do a null check to confirm that we have not already instantiated the map.
+        final String myGeoFenceName = "";
         if (mMap == null) {
             // Try to obtain the map from the SupportMapFragment.
             mMap = ((SupportMapFragment) getSupportFragmentManager().findFragmentById(R.id.map))
@@ -130,7 +134,7 @@ public class MapsActivity extends FragmentActivity {
                         loc.setLatitude(m.latitude);
                         float result = location.distanceTo(loc);
                         Log.d("Map Debugging", "Distance is " + result*0.000621371);
-                        Log.d("Map Debugging","Radisu is "+ m.radius);
+                        Log.d("Map Debugging","Radius is "+ m.radius);
                         if ((result*0.000621371)<m.radius) {
                             Log.d("Map Debugging","found marker");
                             final String name = m.title;
@@ -139,14 +143,16 @@ public class MapsActivity extends FragmentActivity {
                              public void run() {
                                  Toast.makeText(getBaseContext(), ("You are in "+name),
                                          Toast.LENGTH_SHORT).show();
-
+                                 sendNotification(name);
                              }
                          });
+
                             break;
                         }
                     }
                 }
             });
+
 
             mMap.setOnMapClickListener(new GoogleMap.OnMapClickListener() {
                 @Override
@@ -315,6 +321,7 @@ public class MapsActivity extends FragmentActivity {
                 setUpMapWithGeoFences();
             }
         }
+
     }
 
     /**
@@ -670,7 +677,7 @@ public class MapsActivity extends FragmentActivity {
                 }
             }
         }).start();
-        Log.d("DDelete getEvents->",Integer.toString(eventsList.size()));
+        Log.d("DDelete getEvents->", Integer.toString(eventsList.size()));
         return eventsList;
     }
 
@@ -706,5 +713,30 @@ public class MapsActivity extends FragmentActivity {
                 mMarkerList.add(mMarkerHolder);
             }
         });
+    }
+
+    public void sendNotification(String myGeoFenceName) {
+        NotificationCompat.Builder mBuilder =
+                new NotificationCompat.Builder(this)
+                        .setSmallIcon(R.drawable.cast_ic_notification_on)
+                        .setContentTitle("Eventos")
+                        .setContentText("Hey you are in "+ myGeoFenceName);
+        Intent resultIntent = new Intent(this, MapsActivity.class);
+// Because clicking the notification opens a new ("special") activity, there's
+// no need to create an artificial back stack.
+        PendingIntent resultPendingIntent =
+                PendingIntent.getActivity(
+                        this,
+                        0,
+                        resultIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT
+                );
+        // Sets an ID for the notification
+        int mNotificationId = 001;
+// Gets an instance of the NotificationManager service
+        NotificationManager mNotifyMgr =
+                (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+// Builds the notification and issues it.
+        mNotifyMgr.notify(mNotificationId, mBuilder.build());
     }
 }
